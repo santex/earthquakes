@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+
+<head>
+<meta charset="utf-8">
+<title>Earthquakes</title>
+
+<!-- style information //-->
+<link href='http://fonts.googleapis.com/css?family=Source+Sans+Pro:200,900' rel='stylesheet' type='text/css'>
+
+<style type="text/css">
+body {
+    font-family: 'Source Sans Pro', sans-serif;
+    font-weight: 200;
+    font-size: 12pt;
+    text-align: center;
+}
+
+h1 {
+    font-weight: 900;
+    margin: 0px;
+    padding: 0px;
+}
+
+.footer {
+    font-size: 10pt;
+    text-align: center;
+    color: #888888;
+    margin: 0px;
+    padding: 0px;
+}
+
+</style>
+
+<!-- script information //-->
+<script src="http://d3js.org/d3.v3.min.js"></script>
+<script src="http://d3js.org/d3.geo.projection.v0.min.js"></script>
+<script src="http://d3js.org/topojson.v0.min.js"></script>
+<script src="js/jsonp.js"></script>
+
+<!-- main d3 code //-->
+<script>
+var width  = 800;
+var height = 400;
+
+var source = "http://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_week.geojsonp"
+
+var drag = false;
+
+// using natural earth projection
+// https://github.com/mbostock/d3/wiki/Geo-Projections
+// http://bl.ocks.org/mbostock/4479477
+var projection = d3.geo.naturalEarth()
+    .translate([width / 2, height / 2])
+    .precision(0.1)
+    .scale(140);
+
+// used to scale mouse domain to rotation range
+var scale_angle = d3.scale.linear()
+    .domain([-width, width])
+    .range([-180, 180]);
+
+// tracks previous values
+var prev_x = 0;
+var prev_a = 0;
+
+// geographic path generator (use instead of scales
+// to map longitude, latitude points to pixel points)
+var geo_path = d3.geo.path().projection(projection);
+
+function draw_map() {
+    // generate svg image
+    var svg = d3.select("#map")
+        .append("svg")
+        .attr("width", width)
+        .attr("height", height);
+
+    var grid = d3.geo.graticule();
+
+    // create map background area
+    // https://github.com/mbostock/d3/wiki/Geo-Paths
+    svg.append("path")
+        .datum({type: "Sphere"})
+        .attr("d", geo_path)
+        .style("fill", "#93C2FF");
+
+    // create map grid
+    // https://github.com/mbostock/d3/wiki/Geo-Paths#wiki-graticule
+    // graticule: grid of intersecting latitude and longitude lines
+    svg.append("path")
+        .datum(d3.geo.graticule())
+        .attr("d", geo_path)
+        .style("fill", "none")
+        .style("stroke", "#ffffff")
+        .style("stroke-width", "0.5px");
+
+    // add ability to update projection
+    svg.on("mousedown", function() {
+        drag = true;
+        prev_x = d3.mouse(this)[0];
+    });
+
+    svg.on("mouseup", function() {
+        drag = false;
+    });
+
+    svg.on("mousemove", function() {
+        if (drag) {
+            curr_x = d3.mouse(this)[0];
+            curr_a = prev_a + scale_angle(curr_x - prev_x);
+            prev_x = curr_x;
+            prev_a = curr_a;
+
+            projection.rotate([curr_a, 0]);
+            update();
+        }
+    });
+}
+
+function draw_regions(data) {
+    // get pointer to svg image
+    var svg = d3.select("svg")
+
+    // draw land masses
+    svg.append("path")
+        .datum(topojson.object(data, data.objects.land))
+        .attr("d", geo_path)
+        .style("fill", "#eeeeee")
+        .style("stroke", "none");
+
+    // draw region mesh, filter prevents drawing outer regions
+    // https://github.com/mbostock/topojson/wiki/Client-API-Reference#wiki-topojson_mesh
+    svg.append("path")
+        .datum(topojson.mesh(data, data.objects.countries, function(a, b) { return a !== b; }))
+        .attr("d", geo_path)
+        .style("fill", "none")
+        .style("stroke", "#999999")
+        .style("stroke-width", "0.5px");
+
+    // place map outline on top of map grid and regions
+    svg.append("path")
+        .datum({type: "Sphere"})
+        .attr("d", geo_path)
+        .style("fill", "none")
+        .style("stroke", "#444444")
+        .style("stroke-width", "1.5px");
+
+    // once regions are drawn, trigger download of other dataset
+    // have to use jsonp (less secure) unless you have a CORS support
+    d3.jsonp(source);
+
+    // and update dataset every minute
+    setInterval(function() {
+        d3.jsonp(source);
+    }, 60000);
+}
+
+// must be named this way to match earthquake feed
+function eqfeed_callback(data) {
+
+    // get pointer to svg image
+    var svg = d3.select("svg")
+
+    // get updated time
+    var updated = new Date(data.metadata.generated);
+    var format = d3.time.format("%I:%M:%S %p");
+
+    d3.select("#time").text(format(updated));
+
+    console.log("Currently: " + format(new Date()) + ", " +
+        "Last Generated: " + format(updated));
+
+    // handling updates are difficult
+    // http://bost.ocks.org/mike/join/
+    // http://bl.ocks.org/mbostock/3808234
+
+    // get any existing circles
+    var quakes = svg.selectAll("circle")
+        .data(data.features, function(d) {
+            // return identifier to determine if new data
+            return d.id;
+        });
+
+    var radius = d3.scale.pow()
+        .range([2, 12])
+        .domain([0, 10]);
+
+    // add new circles for new earthquakes
+    quakes.enter()
+        .append("circle")
+        .attr("cx", function(d) {
+            var longitude = d.geometry.coordinates[0];
+            var latitude = d.geometry.coordinates[1];
+            return projection([longitude, latitude])[0];
+        })
+        .attr("cy", function(d) {
+            var longitude = d.geometry.coordinates[0];
+            var latitude = d.geometry.coordinates[1];
+            return projection([longitude, latitude])[1];
+        })
+        .attr("r", function(d) {
+            return 0;
+        })
+        .style("fill", "red")
+        .style("fill-opacity", 0)
+        .style("stroke", "red")
+        .style("stroke-width", "0.5px")
+        .style("stroke-opacity", 1)
+        .transition()
+        .delay(function(d, i) {
+            return i / data.features.length * 1000;
+        })
+        .duration(1000)
+        .attr("r", function(d) {
+            return radius(d.properties.mag);
+        })
+        .style("fill-opacity", 0.25);
+
+    // remove circles for old earthquakes no longer in data
+    quakes.exit()
+        .transition()
+        .attr("r", 0)
+        .style("fill-opacity", 0)
+        .remove();
+}
+
+function update() {
+    var svg = d3.select("svg")
+    svg.selectAll("path").attr("d", geo_path);
+    svg.selectAll("circle")
+        .attr("cx", function(d) {
+            var longitude = d.geometry.coordinates[0];
+            var latitude = d.geometry.coordinates[1];
+            return projection([longitude, latitude])[0];
+        })
+        .attr("cy", function(d) {
+            var longitude = d.geometry.coordinates[0];
+            var latitude = d.geometry.coordinates[1];
+            return projection([longitude, latitude])[1];
+        });
+}
+</script>
+</head>
+
+<body>
+<h1>Latest Earthquakes</h1>
+
+<div id="map"></div>
+
+<p class="footer">Latest Earthquakes &bullet; Last Updated: <span id="time">None</span> &bullet; Data Source: <a href="http://earthquake.usgs.gov/earthquakes/feed/">USGS Earthquake Feed</a></p>
+
+<script>
+draw_map();
+d3.json("world-110m.json", draw_regions);
+</script>
+</body>
+
+</html>
