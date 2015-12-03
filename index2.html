@@ -1,43 +1,178 @@
 <!DOCTYPE html>
 <meta charset="utf-8">
 <style>
-path {
-  stroke: white;
-  stroke-width: 0.25px;
-  fill: grey;
+
+.background {
+  fill: none;
+  pointer-events: all;
 }
+
+#states {
+  fill: #aaaaaa;
+}
+
+#states .active {
+  fill: #ff0000;
+  fill-opacity: .5;
+}
+
+#state-borders {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 1.5px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+path.link {
+  fill: none;
+  stroke: #666666;
+  stroke-width: 1.5px;
+}
+
+.stroke {
+  fill: none;
+  stroke: #000;
+  stroke-width: 3px;
+}
+
+.fill {
+  fill: #fff;
+}
+
+.graticule {
+  fill: none;
+  stroke: #777;
+  stroke-width: .5px;
+  stroke-opacity: .5;
+}
+
+.route {
+  fill: none;
+  stroke: blue;
+  stroke-width: 3px;
+}
+
 </style>
 <body>
-<script src="http://d3js.org/d3.v3.min.js"></script>
-<script src="js/topojson.v0.min.js"></script>
-<script>
-var width = 960,
-    height = 500;
+    <h2>
+      <span>NASA Centers</span>
+    </h2>
 
-var projection = d3.geo.mercator()
-    .center([0, 5 ])
-    .scale(900)
-    .rotate([-180,0]);
+<script src="http://d3js.org/d3.v3.min.js"></script>
+<script src="http://d3js.org/d3.geo.projection.v0.min.js"></script>
+<script src="http://d3js.org/topojson.v1.min.js"></script>
+<script>
+
+var width = 1000,
+    height = 600,
+    centered;
+
+var projection = d3.geo.albersUsa()
+    .scale(1070)
+    .translate([width / 2, height / 2]);
+
+var path = d3.geo.path()
+    .projection(projection);
+
+var graticule = d3.geo.graticule();
 
 var svg = d3.select("body").append("svg")
     .attr("width", width)
     .attr("height", height);
 
-var path = d3.geo.path()
-    .projection(projection);
-
 var g = svg.append("g");
 
-// load and display the World
-d3.json("js/world-50m.json", function(error, topology) {
-    g.selectAll("path")
-      .data(topojson.object(topology, topology.objects.countries)
-          .geometries)
-    .enter()
-      .append("path")
+var places = {
+    GSFC: [-76.852587, 38.991621],
+    KSC: [-80.650813, 28.524963]
+    };
+
+var route = {
+  type: "LineString",
+  coordinates: [
+    places.GSFC,
+    places.KSC
+  ]
+};
+
+var point = svg.append("g")
+    .attr("class", "points")
+  .selectAll("g")
+    .data(d3.entries(places))
+  .enter().append("g")
+    .attr("transform", function(d) { return "translate(" + projection(d.value) + ")"; });
+
+point.append("text")
+    .attr("y", 5)
+    .attr("dx", "1em")
+    .text(function(d) { return d.key; });
+
+d3.json("us.json", function(error, us) {
+    g.append("g")
+      .attr("id", "states")
+    .selectAll("path")
+      .data(topojson.feature(us, us.objects.states).features)
+    .enter().append("path")
       .attr("d", path)
+      .on("click", clicked);
+
+    g.append("path")
+      .datum(topojson.mesh(us, us.objects.states, function(a, b) { return a !== b; }))
+      .attr("id", "state-borders")
+      .attr("d", path);
+
+    d3.csv("nasacenters.csv", function(error, data) {
+        g.selectAll("image").data([0])
+           .data(data)
+           .enter()
+           .append("image")
+            .attr("xlink:href", "nasalogo.png")
+            .attr("width", "30")
+            .attr("height", "30")
+            .attr("x", function(d) {
+                   return projection([d.lon, d.lat])[0]-15;
+            })
+            .attr("y", function(d) {
+                   return projection([d.lon, d.lat])[1]-15;
+            })
+
+        svg.append("path")
+          .datum(route)
+          .attr("class", "route")
+          .attr("d", path)
+          .style("opacity", 0.5);
+
+    });
+
 });
 
-</script>
-</body>
+function clicked(d) {
+  var x, y, k;
+
+  if (d && centered !== d) {
+    var centroid = path.centroid(d);
+    x = centroid[0];
+    y = centroid[1];
+    k = 4;
+    centered = d;
+  } else {
+    x = width / 2;
+    y = height / 2;
+    k = 1;
+    centered = null;
+  }
+
+  g.selectAll("path")
+      .classed("active", centered && function(d) { return d === centered; });
+
+  g.transition()
+      .duration(750)
+      .attr("transform", "translate(" + width / 2 + "," + height / 2 + ")scale(" + k + ")translate(" + -x + "," + -y + ")")
+      .style("stroke-width", 1.5 / k + "px");
+}
+
+    </script>
+  </body>
 </html>
