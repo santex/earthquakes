@@ -109,7 +109,7 @@ point.append("text")
     .attr("dx", "1em")
     .text(function(d) { return d.key; });
 
-d3.json("us.json", function(error, us) {
+d3.json("js/world-50m.json", function(error, us) {
     g.append("g")
       .attr("id", "states")
     .selectAll("path")
